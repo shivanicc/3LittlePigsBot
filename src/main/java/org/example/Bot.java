@@ -1,17 +1,20 @@
 package org.example;
+
 import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.objects.Update;
+import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
-import java.util.HashMap;
-import java.util.Map;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton;
+
+import java.util.*;
 
 public class Bot extends TelegramLongPollingBot {
 
     private final Map<Long, String> userOrders = new HashMap<>();  // Store user noodle choice
     private final Map<Long, String> userAddOns = new HashMap<>();  // Store user add-ons
-    private final Map<Long, String> userStates = new HashMap<>(); // Track user progress
-
+    private final Map<Long, String> userStates = new HashMap<>();  // Track user progress
 
     @Override
     public String getBotUsername() {
@@ -20,61 +23,67 @@ public class Bot extends TelegramLongPollingBot {
 
     @Override
     public String getBotToken() {
-        return "7134832616:AAEbWGcpvTslaoRoB9YNUQHgQSXCtOOFgBs";  // Replace with your bot token
+        return "7134832616:AAEbWGcpvTslaoRoB9YNUQHgQSXCtOOFgBs";  // Replace with your actual bot token
     }
-
 
     @Override
     public void onUpdateReceived(Update update) {
+        Long chatId;
+
         if (update.hasMessage() && update.getMessage().hasText()) {
+            chatId = update.getMessage().getChatId();
             String userMessage = update.getMessage().getText();
-            Long chatId = update.getMessage().getChatId();
 
             if (userMessage.equals("/start")) {
                 sendText(chatId, "Hello lovelies! Are you ready to order? 😊\n\nPlease select a noodle option below.");
                 sendNoodleOptions(chatId);
-                userStates.put(chatId, "CHOOSING_NOODLE");  // Set user state to noodle selection
+                userStates.put(chatId, "CHOOSING_NOODLE");
             }
-            else if (userStates.getOrDefault(chatId, "").equals("CHOOSING_NOODLE") && userMessage.matches("[1-6]")) {
-                handleNoodleSelection(chatId, userMessage);
-                userStates.put(chatId, "CHOOSING_ADDON");  // Move user to add-ons stage
-            }
-            else if (userStates.getOrDefault(chatId, "").equals("CHOOSING_ADDON") && userMessage.matches("[1-3](,[1-3])*|No")) {
-                handleAddOnSelection(chatId, userMessage);
-                userStates.put(chatId, "CHOOSING_POPCORN");  // Move user to popcorn selection
-            }
-            else {
-                sendText(chatId, "❌ Invalid input. Please select a valid option.");
+        } else if (update.hasCallbackQuery()) {
+            CallbackQuery query = update.getCallbackQuery();
+            chatId = query.getMessage().getChatId();
+            String data = query.getData();
+
+            if (data.startsWith("noodle_")) {
+                handleNoodleSelection(chatId, data);
+                userStates.put(chatId, "CHOOSING_ADDON");
+            } else if (data.startsWith("addon_")) {
+                handleAddOnSelection(chatId, data);
+                userStates.put(chatId, "CHOOSING_POPCORN");
+            } else if (data.startsWith("popcorn_")) {
+                handlePopcornChickenSelection(chatId, data);
             }
         }
     }
 
-
-    public void sendText(Long who, String what) {
+    private void sendText(Long chatId, String text) {
         SendMessage sm = SendMessage.builder()
-                .chatId(who.toString())
-                .text(what)
+                .chatId(chatId.toString())
+                .text(text)
                 .build();
         try {
             execute(sm);
         } catch (TelegramApiException e) {
-            throw new RuntimeException(e);
+            e.printStackTrace();
         }
     }
 
-    public void sendNoodleOptions(Long chatId) {
-        SendMessage message = SendMessage.builder()
-                .chatId(chatId.toString())
-                .text("🍜 *Select your Noodles:*\n"
-                        + "1️⃣ Indomie ($2)\n"
-                        + "2️⃣ Samyang (Original) ($3.50)\n"
-                        + "3️⃣ Samyang (Carbonara) ($3.50)\n"
-                        + "4️⃣ Maggi Curry ($2)\n"
-                        + "5️⃣ Shin Ramyun ($3)\n"
-                        + "6️⃣ No Noodles (Boooo) ❌\n\n"
-                        + "Reply with the number of your choice.")
-                .parseMode("Markdown")
-                .build();
+    private void sendNoodleOptions(Long chatId) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        message.setText("🍜 *Select your Noodles:*");
+
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        keyboard.add(List.of(createButton("Indomie ($2)", "noodle_1")));
+        keyboard.add(List.of(createButton("Samyang (Original) ($3.50)", "noodle_2")));
+        keyboard.add(List.of(createButton("Samyang (Carbonara) ($3.50)", "noodle_3")));
+        keyboard.add(List.of(createButton("Maggi Curry ($2)", "noodle_4")));
+        keyboard.add(List.of(createButton("Shin Ramyun ($3)", "noodle_5")));
+        keyboard.add(List.of(createButton("No Noodles (Boooo)", "noodle_6")));
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(keyboard);
+        message.setReplyMarkup(markup);
 
         try {
             execute(message);
@@ -83,43 +92,39 @@ public class Bot extends TelegramLongPollingBot {
         }
     }
 
-    public void handleNoodleSelection(Long chatId, String choice) {
-        if (userOrders.containsKey(chatId)) {
-            sendText(chatId, "⚠️ You have already selected: *" + userOrders.get(chatId) + "*.\nIf you want to restart your order, type `/start`.");
-            return;
-        }
-
-        String selectedNoodle = switch (choice) {
-            case "1" -> "Indomie ($2)";
-            case "2" -> "Samyang (Original) ($3.50)";
-            case "3" -> "Samyang (Carbonara) ($3.50)";
-            case "4" -> "Maggi Curry ($2)";
-            case "5" -> "Shin Ramyun ($3)";
-            case "6" -> "No Noodles (Boooo)";
+    private void handleNoodleSelection(Long chatId, String callbackData) {
+        String selectedNoodle = switch (callbackData) {
+            case "noodle_1" -> "Indomie ($2)";
+            case "noodle_2" -> "Samyang (Original) ($3.50)";
+            case "noodle_3" -> "Samyang (Carbonara) ($3.50)";
+            case "noodle_4" -> "Maggi Curry ($2)";
+            case "noodle_5" -> "Shin Ramyun ($3)";
+            case "noodle_6" -> "No Noodles (Boooo)";
             default -> null;
         };
 
-        if (selectedNoodle == null) {
-            sendText(chatId, "❌ Invalid selection. Please enter a number between 1-6.");
-            return;
-        }
-
-        userOrders.put(chatId, selectedNoodle);  // Store the selected noodle
+        userOrders.put(chatId, selectedNoodle);
         sendText(chatId, "✅ You selected: *" + selectedNoodle + "*\nNow, would you like to add any extras?");
         sendAddOns(chatId);
     }
 
+    private void sendAddOns(Long chatId) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        message.setText("🥢 *Would you like any add-ons?*\n(Click to select/unselect, then confirm)");
 
-    public void sendAddOns(Long chatId) {
-        SendMessage message = SendMessage.builder()
-                .chatId(chatId.toString())
-                .text("🥢 *Would you like any add-ons?*\n"
-                        + "1️⃣ Spring Onion (free)\n"
-                        + "2️⃣ Chilli Padi (free)\n"
-                        + "3️⃣ Egg (+$1)\n\n"
-                        + "Reply with the number(s) of your choices separated by commas (e.g., 1,2,3) or type 'No' to skip.")
-                .parseMode("Markdown")
-                .build();
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        keyboard.add(List.of(createButton(getToggleText(chatId, "addon_1", "Spring Onion (Free)"), "addon_1")));
+        keyboard.add(List.of(createButton(getToggleText(chatId, "addon_2", "Chilli Padi (Free)"), "addon_2")));
+        keyboard.add(List.of(createButton(getToggleText(chatId, "addon_3", "Egg (+$1)"), "addon_3")));
+        keyboard.add(List.of(createButton("🚫 No Add-ons", "addon_no")));
+
+        // ✅ Add a Confirm Selection button to proceed
+        keyboard.add(List.of(createButton("✅ Confirm Add-ons", "addon_confirm")));
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(keyboard);
+        message.setReplyMarkup(markup);
 
         try {
             execute(message);
@@ -128,54 +133,131 @@ public class Bot extends TelegramLongPollingBot {
         }
     }
 
-    public void handleAddOnSelection(Long chatId, String addOns) {
-        String selectedAddOns;
+    private void handleAddOnSelection(Long chatId, String callbackData) {
+        if (callbackData.equals("addon_confirm")) {
+            // ✅ Finalize selection and move to next step
+            sendText(chatId, "✅ Your final selection:\n"
+                    + "🍜 Noodles: *" + userOrders.get(chatId) + "*\n"
+                    + "➕ Add-ons: " + userAddOns.getOrDefault(chatId, "No add-ons selected.")
+                    + "\n\nMoving to Popcorn Chicken selection... 🍗");
 
-        if (addOns.equalsIgnoreCase("No")) {
-            selectedAddOns = "No add-ons selected.";
+            sendPopcornChickenOptions(chatId);
+            return;
+        }
+
+        if (callbackData.equals("addon_no")) {
+            userAddOns.put(chatId, "No add-ons selected.");
         } else {
-            StringBuilder addOnList = new StringBuilder();
-            String[] choices = addOns.split(",");
-
-            for (String choice : choices) {
-                switch (choice.trim()) {
-                    case "1" -> addOnList.append("Spring Onion (free), ");
-                    case "2" -> addOnList.append("Chilli Padi (free), ");
-                    case "3" -> addOnList.append("Egg (+$1), ");
-                    default -> {
-                        sendText(chatId, "❌ Invalid add-on selection. Please enter a number between 1-3.");
-                        return;
-                    }
-                }
+            Set<String> selectedAddOns = new HashSet<>(Arrays.asList(userAddOns.getOrDefault(chatId, "").split(",")));
+            switch (callbackData) {
+                case "addon_1" -> toggleSelection(selectedAddOns, "Spring Onion (Free)");
+                case "addon_2" -> toggleSelection(selectedAddOns, "Chilli Padi (Free)");
+                case "addon_3" -> toggleSelection(selectedAddOns, "Egg (+$1)");
             }
-
-            selectedAddOns = addOnList.toString().replaceAll(", $", ""); // Remove trailing comma
+            userAddOns.put(chatId, String.join(", ", selectedAddOns));
         }
 
-        userAddOns.put(chatId, selectedAddOns); // Store add-ons
-        sendText(chatId, "✅ Your final selection:\n"
-                + "🍜 Noodles: *" + userOrders.get(chatId) + "*\n"
-                + "➕ Add-ons: " + selectedAddOns
-                + "\n\nThank you for your order! 🍜");
-
-        // Proceed to Popcorn Chicken selection
-        sendPopcornChickenOptions(chatId);
+        // ✅ Keep the selection process but **DO NOT** re-send add-ons menu (avoid loop)
+        sendAddOns(chatId);
     }
 
-    public void sendPopcornChickenOptions(Long chatId) {
-        SendMessage message = SendMessage.builder()
-                .chatId(chatId.toString())
-                .text("🍗 *Would you like some Popcorn Chicken?*\n"
-                        + "1️⃣ Small ($2)\n"
-                        + "2️⃣ Large ($5)\n\n"
-                        + "Reply with the number of your choice or type 'No' to skip.")
-                .parseMode("Markdown")
-                .build();
+
+    private void toggleSelection(Set<String> selectedAddOns, String item) {
+        if (selectedAddOns.contains(item)) {
+            selectedAddOns.remove(item);
+        } else {
+            selectedAddOns.add(item);
+        }
+    }
+
+    private String getToggleText(Long chatId, String callbackData, String displayText) {
+        return userAddOns.getOrDefault(chatId, "").contains(displayText) ? "✅ " + displayText : displayText;
+    }
+
+
+    private void sendPopcornChickenOptions(Long chatId) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        message.setText("🍗 *Would you like some Popcorn Chicken?*");
+
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        keyboard.add(List.of(createButton("Small ($2)", "popcorn_1")));
+        keyboard.add(List.of(createButton("Large ($5)", "popcorn_2")));
+        keyboard.add(List.of(createButton("No Popcorn Chicken", "popcorn_no")));
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(keyboard);
+        message.setReplyMarkup(markup);
 
         try {
             execute(message);
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
+    }
+
+    private void handlePopcornChickenSelection(Long chatId, String callbackData) {
+        String selectedPopcorn = switch (callbackData) {
+            case "popcorn_1" -> "Small Popcorn Chicken ($2)";
+            case "popcorn_2" -> "Large Popcorn Chicken ($5)";
+            case "popcorn_no" -> "No Popcorn Chicken selected.";
+            default -> null;
+        };
+
+        sendText(chatId, "✅ Order Summary:\n"
+                + "🍜 Noodles: *" + userOrders.get(chatId) + "*\n"
+                + "➕ Add-ons: " + userAddOns.get(chatId) + "\n"
+                + "🍗 Popcorn Chicken: " + selectedPopcorn
+                + "\n\nThank you for your order! 🎉");
+    }
+
+    private void sendNuggetsOptions(Long chatId) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId.toString());
+        message.setText("🍗 *Would you like some Nuggets?*");
+
+        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
+        keyboard.add(List.of(createButton("1 ($0.50)", "nugget_1")));
+        keyboard.add(List.of(createButton("2 ($1)", "nugget_2")));
+        keyboard.add(List.of(createButton("3 ($1.50)", "nugget_3")));
+        keyboard.add(List.of(createButton("5 ($2)", "nugget_4")));
+        keyboard.add(List.of(createButton("No Nugget", "nugget_no")));
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(keyboard);
+        message.setReplyMarkup(markup);
+
+        try {
+            execute(message);
+        } catch (TelegramApiException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void handleNuggetSelection(Long chatId, String callbackData) {
+        String selectedPopcorn = switch (callbackData) {
+            case "nugget_1" -> "1 Nugget ($0.50)";
+            case "nugget_2" -> "2 Nugget ($1)";
+            case "nugget_3" -> "3 Nugget ($1.50)";
+            case "nugget_4" -> "4 Nugget ($2)";
+
+            default -> null;
+        };
+
+        sendText(chatId, "✅ Order Summary:\n"
+                + "🍜 Noodles: *" + userOrders.get(chatId) + "*\n"
+                + "➕ Add-ons: " + userAddOns.get(chatId) + "\n"
+                + "🍗 Popcorn Chicken: " + selectedPopcorn + "\n"
+                + "🍗 Nuggets " + selectedPopcorn + "\n"
+                + "\n\nThank you for your order! 🎉");
+    }
+
+
+
+    private InlineKeyboardButton createButton(String text, String callbackData) {
+        InlineKeyboardButton button = new InlineKeyboardButton();
+        button.setText(text);
+        button.setCallbackData(callbackData);
+        return button;
     }
 }
